@@ -1,0 +1,202 @@
+import pandas as pd #To importing data, Processing data,
+import numpy as np
+from pandas import DataFrame, Series
+import datetime
+import time
+
+#Read the data
+df = pd.read_excel (r'Bank_nifty_data_withformula.xlsx')
+
+df = df.drop(['Unnamed: 13','Unnamed: 14'],axis = 1)
+
+#Find the PDC (Previous day Close)and PDR (previous day range)
+data = pd.DataFrame( columns=['date','pdr','pdc'])
+i = 0
+j = -1
+day = df['start_date'][i]
+size = df.shape[0]
+while (i<size):
+    pdh =df['high'][i]
+    pdl =df['low'][i]
+    while(i<size and day == df['start_date'][i]):
+        pdh = max (pdh,df['high'][i])
+        pdl = min (pdl,df['low'][i])
+        i+=1
+    yr = pdh-pdl
+    j+=1
+    if i<size:
+        day = df['start_date'][i]
+        data.loc[j] = [day,yr,df['close'][i-1]]
+
+
+result = pd.DataFrame( columns=['date','trade','timeT','priceT','timeE','priceE','Stop Loss','Profit'])
+#We have to start form 2nd day of the data only.
+i = 0
+day = df['start_date'][i]
+while (day==df['start_date'][i]):
+    i+=1
+#Now we are at an index to 2nd day.
+j = 0
+k=-1
+day = df['start_date'][i]
+size = df.shape[0]
+
+while (i<size):
+    to = df['open'][i] #todays open
+    h10 =df['high'][i]
+    l10 =df['low'][i]
+    while(df['start_time'][i] < datetime.time(9, 26)):
+        h10 = max (h10,df['high'][i])
+        l10 = min (l10,df['low'][i])
+        i+=1
+    k+=1
+    #///////////////////////////////////////////////////////////////     Gap up or Gap Down
+    if(to > data['pdc'][k]*1.01 or to < data['pdc'][k]*0.99):
+        bb = h10
+        sb = l10
+        pl = 0
+        
+        entry = 1 #To ensure maximum Two entries a day
+        while(i<size and df['start_date'][i]==day): #trade in rest of the day
+            #Search for the candle to enter
+            if (entry<=2 and df['start_time'][i]<datetime.time(15, 0) and df['high'][i] >= bb): #Enter now for BUY and if time < 3pm
+                trade = 'long'
+                entertime = df['start_time'][i]
+                i += 1
+                entry += 1
+                while (i<size and df['start_time'][i]<= datetime.time(15, 15)) and (df.iat[i,4] > sb): #aage bdo
+                    i = i + 1
+                if (i==size or df['start_time'][i]> datetime.time(15, 15)):
+                    pl = pl + df['close'][i-1] - bb
+                    i=i-1
+                    result.loc[j] = [day,trade,entertime,bb,df['start_time'][i],df['close'][i],sb,pl]
+                    j+=1
+                    pl=0
+                else:
+                    pl = pl + sb - bb
+                    result.loc[j] = [day,trade,entertime,bb,df['start_time'][i],sb,sb,pl]
+                    j+=1
+                    pl=0
+                    
+            
+            if (entry<=2 and df['start_time'][i]<datetime.time(15, 0) and df['low'][i] <= sb): #Enter now for SELL and if time <3pm
+                trade = 'short'
+                entertime = df['start_time'][i]
+                i+=1
+                entry += 1
+                while i<size and df.loc[i]['high'] < bb and df['start_time'][i]<= datetime.time(15, 15):# aage bdo
+                    i+=1
+                if(i==size or df['start_time'][i]> datetime.time(15, 15)):
+                    pl = pl + sb - df['close'][i-1]
+                    i-=1
+                    result.loc[j] = [day,trade,entertime,sb,df['start_time'][i],df['close'][i],bb,pl]
+                    j+=1
+                    pl=0
+                else:
+                    pl = pl + sb - bb
+                    result.loc[j] = [day,trade,entertime,sb,df['start_time'][i],bb,bb,pl]
+                    j+=1
+                    pl=0
+            i+=1 #enter the next day
+        if i<size:
+            day = df['start_date'][i]
+        
+     #/////////////////////////////////////////////////////////////////// Otherwise   
+    else:
+        #Calculate the required.
+        m  = 0.618
+        bb = data['pdc'][k] + m*(data['pdr'][k] + h10-l10)
+        sb = data['pdc'][k] - m*(data['pdr'][k] + h10-l10)
+        pl = 0 #profit loss = 0 by default for a day
+    
+        entry = 1 #To ensure maximum Two entries a day
+        while(i<size and df['start_date'][i]==day): #trade in rest of the day
+            #Search for the candle to enter
+            if (entry<=2 and df['start_time'][i]<=datetime.time(15, 0) and df['high'][i] >= bb): #Enter now for BUY and if time < 3pm
+                trade = 'long'
+                price = df['high'][i]
+                entertime = df['start_time'][i]
+                i += 1
+                entry += 1
+                while (i<size and df['start_time'][i]<= datetime.time(15, 15)) and (df.iat[i,4] > 0.995*bb): #aage bdo
+                    i = i + 1
+                if (i==size or df['start_time'][i]>datetime.time(15, 15) ):
+                    pl = pl + df['close'][i-1] - bb-4
+                    i=i-1
+                    result.loc[j] = [day,trade,entertime,bb,df['start_time'][i],df['close'][i],0.995*bb,pl]
+                    j+=1
+                    pl=0
+                else:
+                    pl = pl + 0.995*bb - bb-4
+                    result.loc[j] = [day,trade,entertime,bb,df['start_time'][i],0.995*bb,0.995*bb,pl]
+                    j+=1
+                    pl=0
+                    
+            
+            if (entry<=2 and df['start_time'][i]<datetime.time(15, 0) and df['low'][i] <= sb): #Enter now for SELL and if time <3pm
+                trade = 'short'
+                price = df['low'][i]
+                entertime = df['start_time'][i]
+                i+=1
+                entry += 1
+                while i<size and df.loc[i]['high'] < 1.005*sb and df['start_time'][i]<= datetime.time(15, 15):# aage bdo
+                    i+=1
+                if(i==size or df['start_time'][i]>datetime.time(15, 15)):
+                    pl = pl + sb - df['close'][i-1]-4
+                    i-=1
+                    result.loc[j] = [day,trade,entertime,sb,df['start_time'][i],df['close'][i],1.005*sb,pl]
+                    j+=1
+                    pl=0
+                else:
+                    pl = pl + sb - 1.005*sb-4
+                    result.loc[j] = [day,trade,entertime,sb,df['start_time'][i],1.005*sb,1.005*sb,pl]
+                    j+=1
+                    pl=0
+            i+=1 #enter the next day
+        if i<size:
+            day = df['start_date'][i]
+  #..............................................................
+  result.to_excel( r'FResult_S1.xlsx',sheet_name= 'Test 1')
+  
+  #////////////////////////////////////////////////////////////////
+  mresult = pd.DataFrame(columns = ['year','month','total pl'])
+i = 0
+j = -1
+size = result.shape[0]
+year = (result['year'][i])
+month = (result['month'][i])
+while(i<size):
+    total = 0
+    while (i<size) and (result['month'][i]) == month:
+        total = total + result['Profit'][i]
+        i +=1
+    j += 1
+    mresult.loc[j] = [year,month,total]
+    month= month +1
+    if (month == 13):
+        year = year + 1 
+        month = 1
+
+#.....................................................................
+
+yresult = pd.DataFrame(columns = ['year','total pl'])
+i = 0
+j = -1
+size = mresult.shape[0]
+year = (mresult['year'][i])
+while(i<size):
+    total = 0
+    while (i<size) and (mresult['year'][i]) == year:
+        total = total + mresult['total pl'][i]
+        i +=1
+    j += 1
+    yresult.loc[j] = [year,total]
+    year = year + 1
+    
+    
+#.........................................................................
+## Then we have  to find DropDown and Cumulative PnL in Excel S
+heet 
+## And finally calculate the CALMAR ratio = Total Profit / (no of years * max DrawDown)
+
+
