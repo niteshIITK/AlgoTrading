@@ -1,0 +1,307 @@
+import pandas as pd #To importing data, Processing data,
+import numpy as np
+from pandas import DataFrame, Series
+import datetime
+import time
+import os
+import mysql.connector
+import matplotlib.pyplot as plt
+import seaborn as sns
+import mysql
+%matplotlib inline
+user_name = 'omkar'
+password = 'omkar'
+from datetime import timedelta
+import io
+import xlwt
+import openpyxl
+
+
+connection = mysql.connector.connect(host = '164.52.207.114', user = user_name, passwd = password, db = 'stock_production')
+l = [4, 10, 16, 18, 20, 23, 25, 29, 30, 33, 36, 38, 41, 42, 44, 47, 49, 55, 57, 65, 74, 75, 81, 86, 90, 94, 101, 106, 110, 112, 119, 120, 122, 124, 130, 136, 143, 144, 146, 148, 151, 155, 159, 160, 164, 165, 166, 168, 172, 174, 177, 179, 182, 187, 199, 201, 209, 216, 222, 224, 225, 226, 228, 236, 238, 240, 243, 244, 248, 249, 250, 253, 256, 257, 259, 260, 261, 271, 274, 275, 279, 282, 290, 295, 298, 299, 304, 305, 308, 309, 316, 318, 325, 326, 328, 329, 330, 343, 344, 346, 347, 348, 351, 352, 353, 354, 355, 357, 361, 364, 365, 369, 370, 372, 375, 376, 379, 384, 386, 389, 390, 393, 395, 401, 403, 405, 412, 414, 415, 416]
+df = pd.DataFrame(columns=['instrument_id','ins_date','open','high','low','close','volume'])
+df
+
+
+count =1
+for i in l:
+    print(count)
+    count +=1
+    connection = mysql.connector.connect(host = '164.52.207.114', user = user_name, passwd = password, db = 'stock_production')
+    d = pd.read_sql_query("select instrument_id, ins_date ,open,high,low,close,volume from instrument_details where  instrument_id in ({x}) and date(ins_date) >= '2021-01-01' and date(ins_date) <= '2021-02-10' and time(ins_date)>= '03:45:00' and time(ins_date)<= '03:55:00' order by instrument_id,ins_date;".format(x=i), connection)
+    df = df.append(d)
+
+
+df.reset_index(inplace = True) 
+
+i = 0
+while i<df.shape[0]:
+    print(i)
+    if df['volume'][i]==0:
+        df.drop([i], axis = 0)
+    i+=1
+    
+
+#Find the Volume Ratio for the days of Interest
+data = pd.DataFrame(columns=['instrument_id','date','v_ratio'])
+i = 0
+j = -1
+
+day = df['ins_date'][i].date()
+size = df.shape[0]
+
+while (i<size):
+    vlist = []
+    countdays = 0
+    iid = df['instrument_id'][i]
+    while(i<size and df['instrument_id'][i] == iid):
+    #.................................................................................................................
+        #only for  fist 19 days for a single stock
+        while (countdays<19):
+            volume = 0
+            while(i<size and df['ins_date'][i].date()==day and df['ins_date'][i].time() <=  datetime.time(3, 55)):
+                volume = volume + df['volume'][i]
+                i+=1
+            vlist = vlist + [volume]
+            #Pass the rest day 
+            while (i<size and df['ins_date'][i].date()==day):
+                i+=1
+            #Day 1 is complete so change the day
+            day = df['ins_date'][i].date()
+            countdays+=1
+        #Pass 20th day now............................................
+        if (countdays == 19):
+            volume = 0
+            #first 10 min 
+            while(i<size and df['ins_date'][i].date()==day and df['ins_date'][i].time() <= datetime.time(3, 55)):
+                volume = volume + df['volume'][i]
+                i+=1
+            #Pass the rest day 
+            while (i<size and df['ins_date'][i].date()==day):
+                i+=1
+            vlist = vlist + [volume]  #now it has 20 elements
+            countdays += 1
+            day = df['ins_date'][i].date() #move to the next day
+    
+        #..............................................................................................................
+        #Sum of volume of previous 20 days
+        vsum = 0
+        for kkk in vlist:
+            vsum = vsum + kkk
+        vavg = vsum/20
+        # now for the current day 10 min volume................|||||||||||||
+        volume = 0
+        while(i<size and df['ins_date'][i].date()==day and df['ins_date'][i].time() <=  datetime.time(3, 55)):
+            volume = volume + df['volume'][i]
+            i+=1
+        
+    
+        #......................................................|||||||||||||
+        if (vavg ==0):
+            vratio = 0
+        else:
+            vratio = volume/vavg
+        j+=1
+        data.loc[j] = [iid, day, vratio]
+        vlist.pop(0)
+        vlist = vlist + [volume]
+        
+        #......................................................||||||||||||||
+        #Pass the rest day 
+        while (i<size and df['ins_date'][i].date()==day):
+            i+=1
+        #Day is complete so change the day
+        if i<size:
+            day = df['ins_date'][i].date()
+    #....................................................................................................
+    
+    
+nulllist=data[data['v_ratio'].isnull()].index.tolist()
+data.drop(nulllist , inplace=True)
+
+#Arrange data in order of date 1st and then Instrument_id       ''data1''
+data1 = data.sort_values(by=['date', 'instrument_id'])
+data1.reset_index(inplace = True) 
+data1
+
+data1.drop([0],inplace = True)
+data1.reset_index(inplace = True) 
+data1
+
+#Find top three stocks for each date using data1
+df3 = pd.DataFrame(columns=['date','id','v_ratio'])
+i = 0
+j = -1
+size = data1.shape[0]
+print(size)
+day = data1['date'][i]
+print(data1['date'][i])
+while (i<size):#....................for each date
+    i1=0 #max vratio index for a single date
+    i2=0 #mid vratio
+    i3=0 #min vratio
+    i+=1
+    while (i<size and data1['date'][i] == day):#..........................for each instrument in a single date.
+        if data1['v_ratio'][i]>data1['v_ratio'][i1]:
+            i3=i2
+            i2=i1
+            i1=i
+        elif data1['v_ratio'][i]>data1['v_ratio'][i2]:
+            i3=i2
+            i2=i
+        elif data1['v_ratio'][i]>data1['v_ratio'][i3]:
+            i3=i
+        i += 1
+    j+=1
+    df3.loc[j] = [day,data1['instrument_id'][i1],data1['v_ratio'][i1]]
+    j+=1
+    df3.loc[j] = [day,data1['instrument_id'][i2],data1['v_ratio'][i2]]
+    j+=1
+    df3.loc[j] = [day,data1['instrument_id'][i3],data1['v_ratio'][i3]]
+    #Move to next day now
+    if i<size:
+        day = data1['date'][i]
+
+df3.drop([1,2,3,4,5],inplace = True)
+df3
+
+
+i = 700
+while i < 764:
+    df3.drop([i],axis = 0,inplace = True)
+    i+=1
+    
+df3.reset_index(inplace = True) 
+df3
+
+
+df3 = df3.drop(['index'], axis = 1)
+df3
+df4 = pd.DataFrame(columns=['date','id','v_ratio','pdr','pdc'])
+i = 0
+j = -1
+size = df3.shape[0]
+while (i<size):#....................for each date
+    print(i) #to check the progress.
+    day = df3['date'][i]
+    iid = df3['id'][i]
+    #............................................................................................................
+    connection = mysql.connector.connect(host = '164.52.207.114', user = user_name, passwd = password, db = 'stock_production')
+    d_temp1 = pd.read_sql_query("select max(high)- min(low) as pdr from \
+                                ( select *  from instrument_details where instrument_id = {} \
+                                and date(ins_date) < \'{}\' and time(ins_date)>= '03:45:00' and time(ins_date)< '10:00:00' \
+                                order by date(ins_date) desc  limit 375) as one;".format(iid,day), connection)
+    pdr = d_temp1['pdr'][0]
+    
+    connection = mysql.connector.connect(host = '164.52.207.114', user = user_name, passwd = password, db = 'stock_production')
+    d_temp1 = pd.read_sql_query("select close as pdc from ( select * from instrument_details where instrument_id = {}\
+                                and date(ins_date) <  \'{}\' and time(ins_date)>= '03:45:00' \
+                                and time(ins_date)< '10:00:00' \
+                                order by ins_date desc \
+                                limit 1) as one;".format(iid,day), connection)
+    pdc = d_temp1['pdc'][0]
+    
+    #.............................................................................................................
+    j+=1
+    df4.loc[j] = [day,iid,df3['v_ratio'][i], pdr,pdc]
+    i+=1
+    
+df4.to_excel(r'2017_3_Stocks.xlsx', sheet_name='2017', index = False)
+    
+    
+#Now Lets Trade for the known stock in each date, using table df4 
+
+#Find each day with known id and date in ''df'' and trade in that index.
+result = pd.DataFrame( columns=['date','instrument_id','trade','strategy','timeT','priceT','timeE','priceE','Profit'])
+i = 0 #To traverse the '''df'''
+j = 0 #To traverse the '''df4'''
+k=0 # To fill the results as each trade in one row
+size = df.shape[0]
+while (j<df4.shape[0]):
+    #Find first  day(actualy index value i) to trade in that day 'df'
+    print(j)
+    iid =df4['id'][j]
+    day = df4['date'][j]
+    i=0
+    connection = mysql.connector.connect(host = '164.52.207.114', user = user_name, passwd = password, db = 'stock_production')
+    df_temp = pd.read_sql_query(' select instrument_id, ins_date ,open,high,low,close,volume from instrument_details where  instrument_id = {} and date(ins_date)= \'{}\' and time(ins_date)>= "03:45:00" and time(ins_date)<= "10:00:00" order by instrument_id,ins_date;'.format(iid,day),connection)
+    size = df_temp.shape[0]
+    
+    #now the 'i' value is like we are in the first candle of that day trade till date is same
+    #LET's trade in that day...............................................................................................
+    to = df_temp['open'][i] #todays open
+    h10 =df_temp['high'][i]
+    l10 =df_temp['low'][i]
+    while(df_temp['ins_date'][i].time()< datetime.time(3, 56)):
+        h10 = max (h10,df_temp['high'][i])
+        l10 = min (l10,df_temp['low'][i])
+        i+=1
+    #......Fist 10 min are gone calculate the bb and sb and bsl and ssl.................
+    if(to > df4['pdc'][j]*1.02 or to < df4['pdc'][j]*0.98):
+        ch = 'B'
+        bb = h10
+        sb = l10
+        #now decide the bsl (buy stop loss) 
+        bsl = max(sb,bb*0.995)#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        #now decide the ssl (sell stop loss)
+        ssl = min(bb,sb*1.005)#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    else:
+        ch = 'A'  
+        m  = 0.618 #multiplier
+        bb = df4['pdc'][j] + m*(df4['pdr'][j] + h10-l10)
+        sb = df4['pdc'][j] - m*(df4['pdr'][j] + h10-l10)
+        #now decide the bsl (buy stop loss) ....................................\\\\\ TO CHANGE THIS % \\\\\
+        bsl = bb*0.995
+        #now decide the ssl (sell stop loss) 3%
+        ssl = sb*1.005
+    #.......Now Trade in the Next part of day.........................................................................
+    entry = 1 #To ensure maximum Two entries a day
+    while(i<size and df_temp['ins_date'][i].date()==day): #trade in rest of the day        
+        #Search for the candle to enter
+        if (entry<=2 and df_temp['ins_date'][i].time() < datetime.time(9, 30) and df_temp['high'][i] >= bb): #Enter now for BUY
+            trade = 'long'
+            entertime = df_temp['ins_date'][i].time()
+            entry += 1
+            while (i<size and df_temp['ins_date'][i].time()<= datetime.time(9, 45)) and (df_temp['low'][i]> bsl): #aage bdo
+                i = i + 1
+            if (i==size or df_temp['ins_date'][i].time()> datetime.time(9, 45)):
+                pl = df_temp['close'][i-1] - bb
+                i=i-1
+                result.loc[k] = [day,iid,trade,ch,entertime,bb,df_temp['ins_date'][i].time(),df_temp['close'][i],pl]
+                k+=1
+            else:
+                pl = bsl - bb
+                result.loc[j] = [day,iid,trade,ch,entertime,bb,df_temp['ins_date'][i].time(),bsl,pl]
+                k+=1
+                    
+            
+        if (entry<=2 and df_temp['ins_date'][i].time()<datetime.time(9, 30) and df_temp['low'][i] <= sb): #Enter now for SELL and if time <3pm
+            trade = 'short'
+            entertime =df_temp['ins_date'][i].time()
+            entry += 1
+            while i<size and df_temp.loc[i]['high'] < ssl and df_temp['ins_date'][i].time()<= datetime.time(9, 45):# aage bdo                    
+                i+=1
+            if(i==size or df_temp['ins_date'][i].time()> datetime.time(9, 45)):
+                pl = sb - df_temp['close'][i-1]
+                i-=1
+                result.loc[j] = [day,iid,trade,ch,entertime,sb,df_temp['ins_date'][i].time(),df_temp['close'][i],pl]
+                k+=1
+            else:
+                pl =sb - ssl
+                result.loc[j] = [day,iid,trade,ch,entertime,sb,df_temp['ins_date'][i].time(),ssl,pl]
+                k+=1
+                
+        i+=1 #Enter the next index 
+    # Now focus on next day stock or day of interest 
+    j += 1
+
+
+writer = pd.ExcelWriter('A2017_%%%_stocks.xlsx')
+# write dataframe to excel
+result.to_excel(writer)
+# save the excel
+writer.save()
+
+
+
+
